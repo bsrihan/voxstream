@@ -1,0 +1,23 @@
+# Pipeline
+redis==8.1.0
+PyYAML==6.0.3
+numpy==2.5.2
+soundfile==0.14.0
+scipy==1.18.0
+faster-whisper==1.2.1
+transformers==5.15.0
+torch==2.13.0
+
+# BRAND supervisor dependencies
+sh==2.4.0
+coloredlogs==15.0.1
+
+# Evaluation / notebook
+jiwer==4.0.0
+pandas==3.0.5
+matplotlib==3.11.1
+jupyter==1.1.1
+ipykernel==7.3.0
+
+# Tests
+pytest==9.1.1

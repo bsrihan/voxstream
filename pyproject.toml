@@ -1,0 +1,19 @@
+[build-system]
+requires = ["setuptools>=64"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "spc"
+version = "0.1.0"
+description = "Shared library for BRAND real-time speech pipeline nodes"
+requires-python = ">=3.10"
+
+[tool.setuptools]
+packages = ["spc"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "integration: tests that require a running redis-server",
+    "model: tests that download/run real ML models (slow, not for CI)",
+]
