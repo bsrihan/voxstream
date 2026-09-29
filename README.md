@@ -1,7 +1,5 @@
 # voxstream
 
-**Live speech in, polished text out. ~400 ms to first words, nothing leaves your laptop.**
-
 Streaming speech-to-text with LLM post-correction, running fully locally on a laptop
 CPU. A small Whisper model produces fast partial transcripts while audio is still
 arriving, and a small instruction-tuned LLM cleans up each finalized segment, all
