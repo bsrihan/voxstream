@@ -1,0 +1,46 @@
+# Speech processing pipeline:
+#   audio_publisher -> [audio] -> speech_to_text -> [transcript] -> text_refiner -> [refined]
+#
+# The supervisor runs from the BRAND core directory (third_party/brand), so
+# `module: ../..` points at this repository root and file paths in parameters
+# resolve from third_party/brand as well.
+#
+# The notebook overrides `wav_file` per run by sending this graph as JSON via
+# `startGraph graph <json>`; this file is the canonical reference config.
+nodes:
+  - name: audio_publisher
+    nickname: audio_publisher
+    module: ../..
+    parameters:
+      log: INFO
+      wav_file: ../../data/speech_0.wav
+      chunk_ms: 100
+      output_stream: audio
+      realtime: true
+
+  - name: speech_to_text
+    nickname: speech_to_text
+    module: ../..
+    parameters:
+      log: INFO
+      input_stream: audio
+      output_stream: transcript
+      model: base.en
+      device: cpu
+      compute_type: int8
+      beam_size: 1
+      step_s: 1.0
+      commit_margin_s: 1.2
+      max_buffer_s: 12.0
+
+  - name: text_refiner
+    nickname: text_refiner
+    module: ../..
+    parameters:
+      log: INFO
+      input_stream: transcript
+      output_stream: refined
+      model: Qwen/Qwen2.5-0.5B-Instruct
+      device: auto
+      max_new_tokens: 128
+      enabled: true
