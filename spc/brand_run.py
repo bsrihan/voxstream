@@ -10,6 +10,7 @@ import json
 import os
 import signal
 import subprocess
+import sys
 import time
 from pathlib import Path
 from typing import Optional
@@ -20,6 +21,8 @@ import yaml
 REPO_ROOT = Path(__file__).resolve().parent.parent
 BRAND_DIR = REPO_ROOT / "third_party" / "brand"
 SUPERVISOR = BRAND_DIR / "supervisor" / "supervisor.py"
+# Portable redis config: BRAND's stock one needs root for /var/run paths.
+REDIS_CONF = REPO_ROOT / "config" / "redis.supervisor.conf"
 
 
 class SupervisorHandle:
@@ -67,6 +70,12 @@ class SupervisorHandle:
             self.proc.wait(timeout=10)
         except subprocess.TimeoutExpired:
             self.proc.kill()
+        # If the redis-server child outlived the supervisor (e.g. the
+        # supervisor crashed), stop it too so the port is freed.
+        try:
+            self.redis.shutdown(nosave=True)
+        except redis.exceptions.ConnectionError:
+            pass  # already gone: the normal case
 
 
 def start_supervisor(port: int = 28100, data_dir: Optional[Path] = None,
@@ -78,17 +87,38 @@ def start_supervisor(port: int = 28100, data_dir: Optional[Path] = None,
     log_path = log_path or (REPO_ROOT / "runs" / f"supervisor_{port}.log")
     log_path.parent.mkdir(parents=True, exist_ok=True)
 
+    # Fail fast if the port is occupied (e.g. an orphaned redis-server from
+    # an earlier run). Otherwise the readiness check below could read stale
+    # state from the wrong server.
+    probe = redis.Redis("127.0.0.1", port, socket_connect_timeout=0.5)
+    try:
+        probe.ping()
+        raise RuntimeError(
+            f"port {port} already in use; stop the old server first "
+            f"(redis-cli -p {port} shutdown nosave)")
+    except redis.exceptions.ConnectionError:
+        pass  # port free, as expected
+
+    # Run the supervisor with this interpreter's environment, and make sure
+    # the node shebangs (#!/usr/bin/env python3) resolve to it too.
+    env = os.environ.copy()
+    env["PATH"] = str(Path(sys.executable).parent) + os.pathsep + env["PATH"]
+
     log_file = open(log_path, "w")
     proc = subprocess.Popen(
-        ["python", str(SUPERVISOR),
-         "-i", "127.0.0.1", "-p", str(port), "-d", str(data_dir)],
+        [sys.executable, str(SUPERVISOR),
+         "-i", "127.0.0.1", "-p", str(port), "-d", str(data_dir),
+         "-c", str(REDIS_CONF)],
         cwd=BRAND_DIR,
         stdout=log_file,
         stderr=subprocess.STDOUT,
-        env=os.environ.copy(),
+        env=env,
     )
     handle = SupervisorHandle(proc, "127.0.0.1", port, log_path)
 
+    # The supervisor reads supervisor_ipstream starting from '$', so commands
+    # sent before its listen loop begins are silently dropped. Wait for the
+    # "Listening for commands" status, not merely for Redis to answer.
     deadline = time.monotonic() + timeout_s
     while time.monotonic() < deadline:
         if proc.poll() is not None:
@@ -96,12 +126,15 @@ def start_supervisor(port: int = 28100, data_dir: Optional[Path] = None,
                 f"supervisor exited early (code {proc.returncode}); "
                 f"see {log_path}")
         try:
-            handle.redis.ping()
-            return handle
+            statuses = handle.redis.xrange("supervisor_status", "-", "+")
+            if any(e[b"status"] == b"Listening for commands"
+                   for _, e in statuses):
+                return handle
         except redis.exceptions.ConnectionError:
-            time.sleep(0.2)
+            pass
+        time.sleep(0.2)
     proc.kill()
-    raise TimeoutError(f"redis not reachable after {timeout_s:.0f}s; "
+    raise TimeoutError(f"supervisor not listening after {timeout_s:.0f}s; "
                        f"see {log_path}")
 
 
