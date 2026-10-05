@@ -1,0 +1,14 @@
+# Subset of requirements.txt sufficient to run the test suite in CI.
+# The heavy model stack (torch, transformers, faster-whisper) is intentionally
+# excluded: unit tests inject fake transcribers/LLMs, and the integration
+# tests run a stub STT node and the text_refiner in passthrough mode, so no
+# model is imported or downloaded. Keep versions in sync with requirements.txt.
+redis==8.1.0
+PyYAML==6.0.3
+numpy==2.5.2
+soundfile==0.14.0
+scipy==1.18.0
+sh==2.4.0
+coloredlogs==15.0.1
+jiwer==4.0.0
+pytest==9.1.1

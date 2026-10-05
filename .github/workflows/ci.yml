@@ -1,0 +1,41 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+
+      # The BRAND supervisor spawns its own redis-server process, so the
+      # binary must be on PATH (a Redis service container would not work).
+      - name: Install redis-server
+        run: sudo apt-get update && sudo apt-get install -y redis-server
+
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+
+      - name: Clone BRAND core
+        run: git clone --depth 1 https://github.com/brandbci/brand third_party/brand
+
+      - name: Install dependencies
+        run: |
+          pip install -r requirements-ci.txt
+          pip install -e third_party/brand/lib/python
+          pip install -e .
+
+      - name: Build node executables
+        run: make
+
+      - name: Unit tests
+        run: pytest -m "not integration" -v
+
+      - name: Integration tests (full BRAND graph with stub models)
+        run: pytest -m integration -v
