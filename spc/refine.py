@@ -38,6 +38,29 @@ def build_user_prompt(segment: str, context: Optional[str]) -> str:
     return f"Segment to correct:\n{segment}"
 
 
+def strip_context_echo(refined: str, context: Optional[str],
+                       min_words: int = 3) -> str:
+    """Remove a leading repetition of the context from the model output.
+
+    Small LLMs sometimes prepend the provided context despite being told not
+    to. If a suffix of the context (>= min_words words, compared
+    case/punctuation-insensitively) is a prefix of the output, drop it.
+    """
+    if not context:
+        return refined
+
+    def key(w: str) -> str:
+        return re.sub(r"[^a-z0-9']+", "", w.lower())
+
+    ctx = context.split()
+    out = refined.split()
+    best = 0
+    for k in range(min_words, min(len(ctx), len(out)) + 1):
+        if [key(w) for w in ctx[-k:]] == [key(w) for w in out[:k]]:
+            best = k
+    return " ".join(out[best:]) if best else refined
+
+
 def clean_output(text: str) -> str:
     """Strip quotes/labels an LLM may wrap around the corrected segment."""
     text = text.strip()
@@ -70,9 +93,10 @@ class TranscriptRefiner:
         segment = segment.strip()
         if not segment:
             return segment
+        context = self._context()
         reply = self.generate(SYSTEM_PROMPT,
-                              build_user_prompt(segment, self._context()))
-        refined = clean_output(reply)
+                              build_user_prompt(segment, context))
+        refined = strip_context_echo(clean_output(reply), context)
         # Guard against degenerate LLM outputs (empty, or runaway generation):
         # fall back to the raw ASR segment rather than corrupting the document.
         if not refined or len(refined) > 4 * max(len(segment), 20):

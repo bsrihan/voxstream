@@ -1,4 +1,5 @@
-from spc.refine import (TranscriptRefiner, build_user_prompt, clean_output)
+from spc.refine import (TranscriptRefiner, build_user_prompt, clean_output,
+                        strip_context_echo)
 
 
 def test_clean_output_strips_wrapping_quotes():
@@ -19,6 +20,35 @@ def test_clean_output_keeps_normal_text():
 def test_prompt_includes_context_only_when_present():
     assert "Context" not in build_user_prompt("seg", None)
     assert "previous words" in build_user_prompt("seg", "previous words")
+
+
+def test_strip_context_echo_removes_repeated_context():
+    ctx = "The stale smell of old beer lingers."
+    out = "The stale smell of old beer lingers. It takes heat."
+    assert strip_context_echo(out, ctx) == "It takes heat."
+
+
+def test_strip_context_echo_is_punctuation_insensitive():
+    ctx = "the stale smell of old-beer lingers"
+    out = "The stale smell of old-beer lingers. It takes heat."
+    assert strip_context_echo(out, ctx) == "It takes heat."
+
+
+def test_strip_context_echo_keeps_short_legitimate_overlap():
+    # 1-2 word overlaps can be legitimate text; don't strip them
+    assert strip_context_echo("the cat sat", "on the") == "the cat sat"
+
+
+def test_strip_context_echo_no_context():
+    assert strip_context_echo("hello", None) == "hello"
+
+
+def test_refiner_strips_context_echo_end_to_end():
+    replies = iter(["First sentence.", "First sentence. Second sentence."])
+    refiner = TranscriptRefiner(lambda sys, usr: next(replies))
+    refiner.refine("first sentnce")
+    assert refiner.refine("secnd sentence") == "Second sentence."
+    assert refiner.full_text == "First sentence. Second sentence."
 
 
 def test_refiner_uses_llm_reply():
