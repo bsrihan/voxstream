@@ -55,7 +55,10 @@ def strip_context_echo(refined: str, context: Optional[str],
     ctx = context.split()
     out = refined.split()
     best = 0
-    for k in range(min_words, min(len(ctx), len(out)) + 1):
+    for k in range(1, min(len(ctx), len(out)) + 1):
+        # a short overlap only counts as an echo if it is the whole context
+        if k < min_words and k != len(ctx):
+            continue
         if [key(w) for w in ctx[-k:]] == [key(w) for w in out[:k]]:
             best = k
     return " ".join(out[best:]) if best else refined
