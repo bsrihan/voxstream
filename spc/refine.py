@@ -16,6 +16,8 @@ Prompt design notes:
 import re
 from typing import Callable, List, Optional
 
+from spc.textnorm import word_error_rate
+
 SYSTEM_PROMPT = (
     "You are a transcription corrector. You receive one segment of an "
     "automatic speech transcript at a time, possibly with surrounding "
@@ -76,10 +78,36 @@ def clean_output(text: str) -> str:
     return text.strip()
 
 
+_REFUSAL_MARKERS = (
+    "i'm sorry", "i am sorry", "as an ai", "i cannot", "i can't",
+    "your request", "please provide",
+)
+
+
+def is_degenerate(raw: str, refined: str,
+                  max_divergence: float = 0.6) -> bool:
+    """Detect LLM outputs that are not a plausible correction of `raw`.
+
+    Catches refusals/meta-commentary and rewrites that stray too far from
+    the ASR text (hallucinated content, paraphrased context restatements).
+    An ASR *correction* should be lexically close to its input: fixing a few
+    misrecognized words moves a small fraction of tokens, so a normalized
+    word edit distance above `max_divergence` marks the output degenerate.
+    """
+    if not refined:
+        return True
+    low = refined.lower()
+    if any(m in low for m in _REFUSAL_MARKERS):
+        return True
+    return word_error_rate(raw, refined)["wer"] > max_divergence
+
+
 class TranscriptRefiner:
-    def __init__(self, generate: GenerateFn, context_words: int = 60):
+    def __init__(self, generate: GenerateFn, context_words: int = 60,
+                 max_divergence: float = 0.6):
         self.generate = generate
         self.context_words = context_words
+        self.max_divergence = max_divergence
         self._refined: List[str] = []
 
     @property
@@ -100,9 +128,10 @@ class TranscriptRefiner:
         reply = self.generate(SYSTEM_PROMPT,
                               build_user_prompt(segment, context))
         refined = strip_context_echo(clean_output(reply), context)
-        # Guard against degenerate LLM outputs (empty, or runaway generation):
-        # fall back to the raw ASR segment rather than corrupting the document.
-        if not refined or len(refined) > 4 * max(len(segment), 20):
+        # Conservative-refinement guard: if the output is a refusal or has
+        # diverged too far from the ASR text, fall back to the raw segment.
+        # Refinement can then only tie or improve on degenerate outputs.
+        if is_degenerate(segment, refined, self.max_divergence):
             refined = segment
         self._refined.append(refined)
         return refined
